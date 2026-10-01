@@ -1,6 +1,6 @@
 """The agent loop: give it a task, and it uses tools until the task is done."""
 import json
-import os
+import sys
 
 import anthropic
 from dotenv import load_dotenv
@@ -10,7 +10,7 @@ from . import tools
 load_dotenv()
 client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from .env
 
-MODEL = "claude-sonnet-4-5"
+MODEL = "claude-sonnet-5"
 MAX_STEPS = 15
 
 SYSTEM = (
@@ -43,6 +43,22 @@ TOOL_SCHEMAS = [
         },
     },
     {
+        "name": "edit_file",
+        "description": (
+            "Replace one exact, unique occurrence of old_text with new_text "
+            "in a file. Preferred over write_file for changing existing files."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "old_text": {"type": "string"},
+                "new_text": {"type": "string"},
+            },
+            "required": ["path", "old_text", "new_text"],
+        },
+    },
+    {
         "name": "run_shell",
         "description": "Run a shell command and return its output.",
         "input_schema": {
@@ -57,6 +73,7 @@ TOOL_SCHEMAS = [
 TOOL_FUNCTIONS = {
     "read_file": tools.read_file,
     "write_file": tools.write_file,
+    "edit_file": tools.edit_file,
     "run_shell": tools.run_shell,
 }
 
@@ -66,7 +83,7 @@ def run_agent(task: str) -> None:
 
     for step in range(1, MAX_STEPS + 1):
         response = client.messages.create(
-            model="claude-sonnet-5",
+            model=MODEL,
             max_tokens=4096,
             system=SYSTEM,
             tools=TOOL_SCHEMAS,
@@ -105,5 +122,4 @@ def run_agent(task: str) -> None:
 
 
 if __name__ == "__main__":
-    import sys
     run_agent(" ".join(sys.argv[1:]))

@@ -20,3 +20,19 @@ def run_shell(command: str) -> str:
         command, shell=True, capture_output=True, text=True, timeout=30
     )
     return (result.stdout + result.stderr) or "(no output)"
+
+def edit_file(path: str, old_text: str, new_text: str) -> str:
+    """Replace one exact occurrence of old_text with new_text in a file."""
+    content = Path(path).read_text(encoding="utf-8")
+
+    count = content.count(old_text)
+    if count == 0:
+        return f"ERROR: old_text not found in {path}. No changes made."
+    if count > 1:
+        return (
+            f"ERROR: old_text appears {count} times in {path}. "
+            "Add more surrounding context to make it unique. No changes made."
+        )
+
+    Path(path).write_text(content.replace(old_text, new_text), encoding="utf-8")
+    return f"edited {path}"
