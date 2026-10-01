@@ -6,6 +6,7 @@ import anthropic
 from dotenv import load_dotenv
 
 from . import tools
+from .trace import Trace
 
 load_dotenv()
 client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from .env
@@ -19,7 +20,6 @@ SYSTEM = (
     "and stop once the task is done."
 )
 
-# Describe each tool so the model knows what it can call and what to pass.
 TOOL_SCHEMAS = [
     {
         "name": "read_file",
@@ -69,7 +69,6 @@ TOOL_SCHEMAS = [
     },
 ]
 
-# Map tool names to the actual Python functions.
 TOOL_FUNCTIONS = {
     "read_file": tools.read_file,
     "write_file": tools.write_file,
@@ -79,6 +78,7 @@ TOOL_FUNCTIONS = {
 
 
 def run_agent(task: str) -> None:
+    trace = Trace(task=task, model=MODEL)
     messages = [{"role": "user", "content": task}]
 
     for step in range(1, MAX_STEPS + 1):
@@ -89,6 +89,7 @@ def run_agent(task: str) -> None:
             tools=TOOL_SCHEMAS,
             messages=messages,
         )
+        trace.add_tokens(response.usage.input_tokens, response.usage.output_tokens)
         messages.append({"role": "assistant", "content": response.content})
 
         # If the model didn't ask for a tool, it's finished: print and stop.
@@ -96,7 +97,8 @@ def run_agent(task: str) -> None:
             for block in response.content:
                 if block.type == "text":
                     print("\n" + block.text)
-            return
+            trace.outcome = "completed"
+            break
 
         # Otherwise, run each tool it asked for and feed the results back.
         results = []
@@ -111,14 +113,25 @@ def run_agent(task: str) -> None:
             except Exception as e:
                 output = f"ERROR: {e}"
 
+            trace.add_tool_call(step, block.name, block.input, output)
             results.append({
                 "type": "tool_result",
                 "tool_use_id": block.id,
-                "content": output[:8000],  # crude truncation for now
+                "content": output[:8000],
             })
         messages.append({"role": "user", "content": results})
+    else:
+        # Loop finished without breaking = hit the step limit.
+        print("Stopped: hit the step limit.")
 
-    print("Stopped: hit the step limit.")
+    path = trace.save()
+    print(
+        f"\n--- run summary ---\n"
+        f"outcome: {trace.outcome} | steps: {len(trace.steps)} | "
+        f"tokens: {trace.input_tokens} in / {trace.output_tokens} out | "
+        f"cost: ${trace.cost_usd():.4f}\n"
+        f"trace saved: {path}"
+    )
 
 
 if __name__ == "__main__":
